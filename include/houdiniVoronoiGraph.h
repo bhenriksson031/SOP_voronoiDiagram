@@ -127,14 +127,9 @@ class boostVoronoiGraph {
 				return ptoff;
 			}
 
-
 			int houMeshLoader(GU_Detail *gpd) {
 				// Preparing Input Geometries.
-				//TODO add all gdp positions to pts
 				if (verbosity > 0)printf("houMeshLoader...\n");
-				//point_data_.push_back(point_type(0.0, 0.0));
-				//point_data_.push_back(point_type(1.0, 6.0));
-
 				//iterate over prims 
 				GEO_Primitive *prim;
 				GA_Range vtx_range;
@@ -162,13 +157,6 @@ class boostVoronoiGraph {
 						}
 					}
 				}
-				
-				//segment_data_.push_back(segment_type(point_type(-4.0, 5.0), point_type(5.0, -1.0) ) );
-				//segment_data_.push_back(segment_type(point_type(3.0, -11.0), point_type(13.0, -1.0)));
-
-				update_brect(point_type(13.0, 6.0));
-				update_brect(point_type(-4.0, -11.0));
-
 				return(0);
 			}
 
@@ -360,7 +348,14 @@ class boostVoronoiGraph {
 				discretize(point, segment, max_dist, sampled_edge);
 			}
 
-			// Traversing Voronoi edges using cell iterator.
+			GEO_PrimPoly* create_edge_hou_poly(GU_Detail *gdp, const voronoi_diagram<coordinate_type>::edge_type* edge) {
+				GEO_PrimPoly *poly = (GEO_PrimPoly *)gdp->appendPrimitive(GA_PRIMPOLY);
+				if (set_cell_prim_attr_) {
+				}
+				return poly;
+			}
+
+				// Traversing Voronoi edges using cell iterator.
 			int iterate_primary_edges(GU_Detail *gdp, const voronoi_diagram<coordinate_type> &vd, std::vector<point_type>& points, std::vector<segment_type>& segments) {
 				if (verbosity > 0)printf("iterate_primary_edges...\n");
 				int result = 0;
@@ -369,10 +364,11 @@ class boostVoronoiGraph {
 					it != vd.cells().end(); ++it) {
 					const voronoi_diagram<coordinate_type>::cell_type& cell = *it;
 					const voronoi_diagram<coordinate_type>::edge_type* edge = cell.incident_edge();
+					
 					// This is convenient way to iterate edges around Voronoi cell.
 					do {
 						if (edge->is_primary()) {
-							GEO_PrimPoly *poly = (GEO_PrimPoly *)gdp->appendPrimitive(GA_PRIMPOLY);
+							GEO_PrimPoly *poly = create_edge_hou_poly(gdp, edge);
 							std::vector<point_type> samples;
 							if (!edge->is_finite()) {
 								clip_infinite_edge(*edge, &samples);
@@ -434,6 +430,7 @@ class boostVoronoiGraph {
 				//TODO add voronoi cells as prims and points
 				if (verbosity > 0)printf("addVoronoiDiagramToHouMesh...\n");
 				//create geometry for voronoi graph
+				if (set_cell_prim_attr_) {};
 				iterate_primary_edges(gdp, vd, points, segments);
 
 
@@ -537,6 +534,7 @@ class boostVoronoiGraph {
 			bool primary_edges_only_;
 			bool internal_edges_only_;
 			int verbosity = 0;
+			int set_cell_prim_attr_ = true;
 			/*
 			//old code here as ref
 			void HouMeshDumper(GU_Detail *gdp) {
