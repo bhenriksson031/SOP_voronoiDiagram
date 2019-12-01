@@ -45,6 +45,7 @@
 #include <SYS/SYS_Math.h>
 #include <limits.h>
 
+#include <OP/OP_AutoLockInputs.h>
 #include <include/houdiniVoronoiGraph.h>
 
 
@@ -102,12 +103,12 @@ SOP_VoronoiGraph::buildTemplates()
     static PRM_TemplateBuilder templ("SOP_VoronoiGraph.C"_sh, theDsFile);
     return templ.templates();
 }
-
-class SOP_VoronoiGraphVerb : public SOP_NodeVerb
+/*
+class SOP_VoronoiGraph : public SOP_NodeVerb
 {
 public:
-    SOP_VoronoiGraphVerb() {}
-    virtual ~SOP_VoronoiGraphVerb() {}
+	SOP_VoronoiGraph() {}
+    virtual ~SOP_VoronoiGraph() {}
 
     virtual SOP_NodeParms *allocParms() const { return new SOP_VoronoiGraphParms(); }
     virtual UT_StringHolder name() const { return SOP_VoronoiGraph::theSOPTypeName; }
@@ -118,24 +119,51 @@ public:
     
     /// This static data member automatically registers
     /// this verb class at library load time.
-    static const SOP_NodeVerb::Register<SOP_VoronoiGraphVerb> theVerb;
+    //static const SOP_NodeVerb::Register<SOP_VoronoiGraph> theVerb;
 };
-
+*/
+/* verb is obsolete
 // The static member variable definition has to be outside the class definition.
 // The declaration is inside the class.
-const SOP_NodeVerb::Register<SOP_VoronoiGraphVerb> SOP_VoronoiGraphVerb::theVerb;
+const SOP_NodeVerb::Register<SOP_VoronoiGraph> SOP_VoronoiGraph::theVerb;
 
 const SOP_NodeVerb *
 SOP_VoronoiGraph::cookVerb() const 
 { 
-    return SOP_VoronoiGraphVerb::theVerb.get();
+    return SOP_VoronoiGraph::theVerb.get();
+}
+*/
+
+OP_ERROR
+SOP_VoronoiGraph::cookMySop(OP_Context &context)
+{
+	printf("SOP_VoronoiGraphVerb::cook...\n");
+	OP_AutoLockInputs inputs(this);
+	if (inputs.lock(context) >= UT_ERROR_ABORT)
+		return error();
+
+	fpreal now = context.getTime();
+
+	duplicateSource(0, context);
+	// 2. Copy input geometry into our gdp
+	// 3. Parse and create myGroup
+	if (cookInputGroups(context) >= UT_ERROR_ABORT)
+		return error();	setCurGdh(0, myGdpHandle);
+
+	boostVoronoiGraph test;
+	test.addVoronoiGraphToHoudiniGeo(gdp);
+	return error();
+
 }
 
+//verbification is obsolete
+/*
 /// This is the function that does the actual work.
 void
-SOP_VoronoiGraphVerb::cook(const SOP_NodeVerb::CookParms &cookparms) const
+SOP_VoronoiGraph::cook(const SOP_NodeVerb::CookParms &cookparms) const
 {	
-	printf("SOP_VoronoiGraphVerb::cook...\n");
+	printf("SOP_VoronoiGraph::cook...\n");
+	OP_AutoLockInputs inputs(this);
 
     auto &&sopparms = cookparms.parms<SOP_VoronoiGraphParms>();
     GU_Detail *detail = cookparms.gdh().gdpNC();
@@ -143,3 +171,4 @@ SOP_VoronoiGraphVerb::cook(const SOP_NodeVerb::CookParms &cookparms) const
 	test.addVoronoiGraphToHoudiniGeo(detail);
 
 }
+*/

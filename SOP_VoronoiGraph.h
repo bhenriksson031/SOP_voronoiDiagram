@@ -48,7 +48,7 @@ public:
 
     static const UT_StringHolder theSOPTypeName;
     
-    virtual const SOP_NodeVerb *cookVerb() const override;
+    //virtual const SOP_NodeVerb *cookVerb() const override;
 
 protected:
     SOP_VoronoiGraph(OP_Network *net, const char *name, OP_Operator *op)
@@ -56,16 +56,19 @@ protected:
     {
         // All verb SOPs must manage data IDs, to track what's changed
         // from cook to cook.
-        mySopFlags.setManagesDataIDs(true);
+        mySopFlags.setManagesDataIDs(false); //manual edit, was set to false!
     }
-    
-    virtual ~SOP_VoronoiGraph() {}
+	/// Method to cook geometry for the SOP
+	virtual OP_ERROR		 cookMySop(OP_Context &context);
 
+    virtual ~SOP_VoronoiGraph() {}
+	/* not a verb anymore
     /// Since this SOP implements a verb, cookMySop just delegates to the verb.
     virtual OP_ERROR cookMySop(OP_Context &context) override
     {
         return cookMyselfAsVerb(context);
     }
+	*/
 };
 } // End HDK_Sample namespace
 
