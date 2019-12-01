@@ -11,6 +11,10 @@
 #include <GEO/GEO_PrimPoly.h>
 
 #include <boost/polygon/voronoi.hpp>
+#include <boost/polygon/polygon.hpp>
+
+
+
 using boost::polygon::voronoi_builder;
 using boost::polygon::voronoi_diagram;
 using boost::polygon::x;
@@ -31,6 +35,8 @@ struct Point {
 	double y() { return b; }
 	double x(double val) {a = val;}
 	double y(double val) {b = val;}
+	double set(double x, double y) { a = x; b = y; }
+
 };
 
 struct Segment {
@@ -57,7 +63,22 @@ namespace boost {
 				return (orient == HORIZONTAL) ? point.a : point.b;
 			}
 		};
+		/*
+		//modified from point_traits.hpp
+		template <>
+		struct point_mutable_traits<Point> {
+			typedef double coordinate_type;
 
+			static void set(
+				Point& point, orientation_2d orient, coordinate_type value) {
+				point.set(orient, value);
+			}
+
+			static Point construct(coordinate_type x, coordinate_type y) {
+				return Point(x, y);
+			}
+		};
+		*/
 		template <>
 		struct geometry_concept<Segment> {
 			typedef segment_concept type;
@@ -72,41 +93,19 @@ namespace boost {
 				return dir.to_int() ? segment.p1 : segment.p0;
 			}
 		};
+	}  // polygon
+}  // boost
 
-
+using namespace boost::polygon;
 		class boostVoronoiGraph {
 		
 
-		public:
-			//TODO convert mesh to boost.polygon 2d format
-			//namespace boostVoronoiGraph {
-				/*
-				from voronoi visualizer, might have been better to implement this
-			private:
-				typedef double coordinate_type;
-				typedef point_data<coordinate_type> point_type;
-				typedef segment_data<coordinate_type> segment_type;
-				typedef rectangle_data<coordinate_type> rect_type;
-				typedef voronoi_builder<int> VB;
-				typedef voronoi_diagram<coordinate_type> VD;
-				typedef VD::cell_type cell_type;
-				typedef VD::cell_type::source_index_type source_index_type;
-				typedef VD::cell_type::source_category_type source_category_type;
-				typedef VD::edge_type edge_type;
-				typedef VD::cell_container_type cell_container_type;
-				typedef VD::cell_container_type vertex_container_type;
-				typedef VD::edge_container_type edge_container_type;
-				typedef VD::const_cell_iterator const_cell_iterator;
-				typedef VD::const_vertex_iterator const_vertex_iterator;
-				typedef VD::const_edge_iterator const_edge_iterator;
-				*/
-				//duplicate of above
-			//private:
+		private:
 			typedef double coordinate_type;
-			typedef Point point_type;
-			typedef Segment segment_type;
-			//typedef boost::polygon::rectangle_data<double> rect_type;
-			typedef voronoi_builder<double> VB;
+			typedef point_data<coordinate_type> point_type;
+			typedef segment_data<coordinate_type> segment_type;
+			typedef rectangle_data<coordinate_type> rect_type;
+			typedef voronoi_builder<int> VB;  //int from https://www.boost.org/doc/libs/1_71_0/libs/polygon/example/voronoi_visualizer.cpp
 			typedef voronoi_diagram<coordinate_type> VD;
 			typedef VD::cell_type cell_type;
 			typedef VD::cell_type::source_index_type source_index_type;
@@ -118,12 +117,9 @@ namespace boost {
 			typedef VD::const_cell_iterator const_cell_iterator;
 			typedef VD::const_vertex_iterator const_vertex_iterator;
 			typedef VD::const_edge_iterator const_edge_iterator;
-			
-			//from voronoi visualizer.cpp
-			typedef rectangle_data<coordinate_type> rect_type;
 
 
-			GA_Offset addPointFromVDPt(GU_Detail *gdp, Point p) {
+			GA_Offset addPointFromVDPt(GU_Detail *gdp, point_type p) {
 				GA_Offset ptoff = gdp->appendPoint();
 				UT_Vector3 PValue = UT_Vector3(x(p), 0.0f, y(p)); //TODO get edge point position
 				gdp->setPos3(ptoff, PValue);
@@ -135,10 +131,14 @@ namespace boost {
 				// Preparing Input Geometries.
 				//TODO add all gdp positions to pts
 				printf("houMeshLoader...\n");
-				point_data_.push_back(Point(0.0, 0.0));
-				point_data_.push_back(Point(1.0, 6.0));
-				segment_data_.push_back(Segment(-4.0, 5.0, 5.0, -1.0));
-				segment_data_.push_back(Segment(3.0, -11.0, 13.0, -1.0));
+				point_data_.push_back(point_type(0.0, 0.0));
+				point_data_.push_back(point_type(1.0, 6.0));
+				segment_data_.push_back(segment_type(point_type(-4.0, 5.0), point_type(5.0, -1.0) ) );
+				segment_data_.push_back(segment_type(point_type(3.0, -11.0), point_type(13.0, -1.0)));
+
+				update_brect(point_type(13.0, 6.0));
+				update_brect(point_type(-4.0, -11.0));
+
 				return(0);
 			}
 			//reference code
@@ -192,10 +192,10 @@ namespace boost {
 			}
 			*/
 			void discretize(
-				const Point& point,
-				const Segment& segment,
+				const point_type& point,
+				const segment_type& segment,
 				const double max_dist,
-				std::vector< Point >* discretization) {
+				std::vector< point_type >* discretization) {
 				printf("discretize...\n");
 				// Apply the linear transformation to move start point of the segment to
 				// the point with coordinates (0, 0) and the direction of the segment to
@@ -222,7 +222,7 @@ namespace boost {
 				double rot_y = segm_vec_x * point_vec_y - segm_vec_y * point_vec_x;
 
 				// Save the last point.
-				Point last_point = (*discretization)[1];
+				point_type last_point = (*discretization)[1];
 				discretization->pop_back();
 
 				// Use stack to avoid recursion.
@@ -255,7 +255,7 @@ namespace boost {
 							sqr_segment_length + static_cast<double>(x(low(segment)));
 						double inter_y = (segm_vec_x * new_y + segm_vec_y * new_x) /
 							sqr_segment_length + static_cast<double>(y(low(segment)));
-						discretization->push_back(Point(inter_x, inter_y));
+						discretization->push_back(point_type(inter_x, inter_y));
 						cur_x = new_x;
 						cur_y = new_y;
 					}
@@ -283,7 +283,7 @@ namespace boost {
 		 // the point lies between the start-point and endpoint of the segment.
 
 		 double get_point_projection(
-				 const Point& point, const Segment& segment) {
+				 const point_type& point, const segment_type& segment) {
 			 double segment_vec_x = static_cast<double>(x(high(segment))) - static_cast<double>(x(low(segment)));
 			 double segment_vec_y = static_cast<double>(y(high(segment))) - static_cast<double>(y(low(segment)));
 			 double point_vec_x = x(point) - static_cast<double>(x(low(segment)));
@@ -293,7 +293,7 @@ namespace boost {
 			 double vec_dot = segment_vec_x * point_vec_x + segment_vec_y * point_vec_y;
 			 return vec_dot / sqr_segment_length;
 		 }
-				Segment retrieve_segment(const cell_type& cell) {
+				segment_type retrieve_segment(const cell_type& cell) {
 					source_index_type index = cell.source_index() - point_data_.size();
 					return segment_data_[index];
 				}
@@ -301,7 +301,7 @@ namespace boost {
 
 
 
-			Point retrieve_point(const voronoi_diagram<double>::cell_type& cell) {
+			point_type retrieve_point(const voronoi_diagram<coordinate_type>::cell_type& cell) {
 				source_index_type index = cell.source_index();
 				source_category_type category = cell.source_category();
 				if (category == boost::polygon::SOURCE_CATEGORY_SINGLE_POINT) {
@@ -318,6 +318,7 @@ namespace boost {
 
 			void clip_infinite_edge(
 				const edge_type& edge, std::vector<point_type>* clipped_edge) {
+				printf("clip_infinite_edge...\n");
 				const cell_type& cell1 = *edge.cell();
 				const cell_type& cell2 = *edge.twin()->cell();
 				point_type origin, direction;
@@ -370,67 +371,63 @@ namespace boost {
 						point_type(edge.vertex1()->x(), edge.vertex1()->y()));
 				}
 			}
-			void sample_curved_edge(const voronoi_diagram<coordinate_type>::edge_type& edge, std::vector<Point>* sampled_edge, std::vector<Point>& points, std::vector<Segment>& segments) {
+			void sample_curved_edge(const voronoi_diagram<coordinate_type>::edge_type& edge, std::vector<point_type>* sampled_edge) {
 				printf("sample_curved_edge...\n");
 				double max_dist = .1; // 1E-3 * (xh(brect_) - xl(brect_));
-				Point point = edge.cell()->contains_point() ? retrieve_point(*edge.cell()) : retrieve_point(*edge.twin()->cell());
-				Segment segment = edge.cell()->contains_point() ?
+				point_type point = edge.cell()->contains_point() ? retrieve_point(*edge.cell()) : retrieve_point(*edge.twin()->cell());
+				segment_type segment = edge.cell()->contains_point() ?
 					retrieve_segment(*edge.twin()->cell()) :
 					retrieve_segment(*edge.cell());
 				discretize(point, segment, max_dist, sampled_edge);
 			}
 
 			// Traversing Voronoi edges using cell iterator.
-			int iterate_primary_edges2(GU_Detail *gdp, const voronoi_diagram<double> &vd, std::vector<Point>& points, std::vector<Segment>& segments) {
+			int iterate_primary_edges2(GU_Detail *gdp, const voronoi_diagram<coordinate_type> &vd, std::vector<point_type>& points, std::vector<segment_type>& segments) {
 				printf("iterate_primary_edges2...\n");
 				int result = 0;
 				GA_Offset ptoff;
-				for (voronoi_diagram<double>::const_cell_iterator it = vd.cells().begin();
+				for (voronoi_diagram<coordinate_type>::const_cell_iterator it = vd.cells().begin();
 					it != vd.cells().end(); ++it) {
-					const voronoi_diagram<double>::cell_type& cell = *it;
-					const voronoi_diagram<double>::edge_type* edge = cell.incident_edge();
+					const voronoi_diagram<coordinate_type>::cell_type& cell = *it;
+					const voronoi_diagram<coordinate_type>::edge_type* edge = cell.incident_edge();
 					// This is convenient way to iterate edges around Voronoi cell.
 					GEO_PrimPoly *poly = (GEO_PrimPoly *)gdp->appendPrimitive(GA_PRIMPOLY);
 					do {
 						if (edge->is_primary()) {
-							if (edge->is_curved()) {
-								std::vector<Point> samples;
-								//grabbed from 
-								if (!edge->is_finite()) {
-									continue;
-								}
-								else {
-									point_type vertex0(edge->vertex0()->x(), edge->vertex0()->y());
-									samples.push_back(vertex0);
-									point_type vertex1(edge->vertex1()->x(), edge->vertex1()->y());
-									samples.push_back(vertex1);
-									if (edge->is_curved()) {
-										sample_curved_edge(*edge, &samples, points, segments);
-									}
-								}
-								for (int i = 0; i < samples.size(); ++i) {
-									Point p0 = samples[i];
-									ptoff = addPointFromVDPt(gdp, p0);
-									poly->appendVertex(ptoff);
+							std::vector<point_type> samples;
+							if (!edge->is_finite()) {
+								clip_infinite_edge(*edge, &samples);
+							}
+							else {
+								point_type vertex0(edge->vertex0()->x(), edge->vertex0()->y());
+								samples.push_back(vertex0);
+								point_type vertex1(edge->vertex1()->x(), edge->vertex1()->y());
+								samples.push_back(vertex1);
+								if (edge->is_curved()) {
+									sample_curved_edge(*edge, &samples);
 								}
 							}
-							const voronoi_diagram<double>::vertex_type *vtx0 = edge->vertex0();
-							const voronoi_diagram<double>::vertex_type *vtx1 = edge->vertex1();
+							for (int i = 0; i < samples.size(); ++i) {
+								point_type p0 = samples[i];
+								ptoff = addPointFromVDPt(gdp, p0);
+								poly->appendVertex(ptoff);
+							}
+							const voronoi_diagram<coordinate_type>::vertex_type *vtx0 = edge->vertex0();
+							const voronoi_diagram<coordinate_type>::vertex_type *vtx1 = edge->vertex1();
 							if (vtx0 != nullptr && vtx1 != nullptr) {
 								double x0 = vtx0->x();  //TODO printing test chrashes Hou
 								double y0 = vtx0->y();
 								double x1 = vtx1->x();  //TODO printing test chrashes Hou
 								double y1 = vtx1->y();
 								printf("Found points: %f, %f, %f, %f\n", x0, y0, x1, y1);
-								Point p0 = Point(x0, y0);
-								Point p1 = Point(x1, y1);
+								point_type p0 = point_type(x0, y0);
+								point_type p1 = point_type(x1, y1);
 								//add point for vertex position
 								ptoff = addPointFromVDPt(gdp, p0);
 								poly->appendVertex(ptoff);
 								ptoff = addPointFromVDPt(gdp, p1);
 								poly->appendVertex(ptoff);
 							}
-
 
 							++result;
 						}
@@ -444,20 +441,20 @@ namespace boost {
 			// As opposite to the above two functions this one will not iterate through
 			// edges without finite endpoints and will iterate only once through edges
 			// with single finite endpoint.
-			int iterate_primary_edges3(GU_Detail *gdp, const voronoi_diagram<double> &vd) {
+			int iterate_primary_edges3(GU_Detail *gdp, const voronoi_diagram<coordinate_type> &vd) {
 				int result = 0;
 				//TODO add polygon
 				GA_Offset ptoff;
-				for (voronoi_diagram<double>::const_vertex_iterator it =
+				for (voronoi_diagram<coordinate_type>::const_vertex_iterator it =
 					vd.vertices().begin(); it != vd.vertices().end(); ++it) {
-					const voronoi_diagram<double>::vertex_type& vertex = *it;
-					const voronoi_diagram<double>::edge_type* edge = vertex.incident_edge();
+					const voronoi_diagram<coordinate_type>::vertex_type& vertex = *it;
+					const voronoi_diagram<coordinate_type>::edge_type* edge = vertex.incident_edge();
 					// This is convenient way to iterate edges around Voronoi vertex.
 					GEO_PrimPoly *poly = (GEO_PrimPoly *)gdp->appendPrimitive(GA_PRIMPOLY);
 					do {
 						if (edge->is_primary()) {
 							//add point for vertex position
-							ptoff = addPointFromVDPt(gdp, Point(vertex.x(), vertex.y()));
+							ptoff = addPointFromVDPt(gdp, point_type(vertex.x(), vertex.y()));
 							poly->appendVertex(ptoff);
 							//add vertex on polygon for point
 							++result;
@@ -470,7 +467,7 @@ namespace boost {
 
 
 
-			int addVoronoiDiagramToHouMesh(GU_Detail *gdp, voronoi_diagram<double>& vd, std::vector<Point>& points, std::vector<Segment>& segments) {
+			int addVoronoiDiagramToHouMesh(GU_Detail *gdp, voronoi_diagram<coordinate_type>& vd, std::vector<point_type>& points, std::vector<segment_type>& segments) {
 				//TODO add voronoi cells as prims and points
 				printf("addVoronoiDiagramToHouMesh...\n");
 				//create geometry for voronoi graph
@@ -492,14 +489,14 @@ namespace boost {
 
 				unsigned int cell_index = 0;
 				GA_Offset ptoff;
-				for (voronoi_diagram<double>::const_cell_iterator it = vd.cells().begin();
+				for (voronoi_diagram<coordinate_type>::const_cell_iterator it = vd.cells().begin();
 					it != vd.cells().end(); ++it) {
 					// This is convenient way to iterate edges around Voronoi vertex.
 					if (it->contains_point()) {
 						if (it->source_category() ==
 							boost::polygon::SOURCE_CATEGORY_SINGLE_POINT) {
 							std::size_t index = it->source_index();
-							Point p = points[index];
+							point_type p = points[index];
 							//add hou pt from vd pt
 							addPointFromVDPt(gdp, p);
 
@@ -507,13 +504,13 @@ namespace boost {
 						else if (it->source_category() ==
 							boost::polygon::SOURCE_CATEGORY_SEGMENT_START_POINT) {
 							std::size_t index = it->source_index() - points.size();
-							Point p0 = low(segments[index]);
+							point_type p0 = low(segments[index]);
 							ptoff = addPointFromVDPt(gdp, p0);
 						}
 						else if (it->source_category() ==
 							boost::polygon::SOURCE_CATEGORY_SEGMENT_END_POINT) {
 							std::size_t index = it->source_index() - points.size();
-							Point p1 = high(segments[index]);
+							point_type p1 = high(segments[index]);
 
 							ptoff = addPointFromVDPt(gdp, p1);
 						}
@@ -522,8 +519,8 @@ namespace boost {
 
 						std::size_t index = it->source_index() - points.size();
 						//TODO create polygon for edge
-						Point pt0 = low(segments[index]);
-						Point pt1 = high(segments[index]);
+						point_type pt0 = low(segments[index]);
+						point_type pt1 = high(segments[index]);
 						GEO_PrimPoly *poly = (GEO_PrimPoly *)gdp->appendPrimitive(GA_PRIMPOLY);
 						ptoff = addPointFromVDPt(gdp, pt0);
 						poly->appendVertex(ptoff);
@@ -541,23 +538,37 @@ namespace boost {
 				segment_data_.clear();
 				vd_.clear();
 			}
+
+			void update_brect(const point_type& point) {
+				printf("update_brect...\n");
+				if (brect_initialized_) {
+					encompass(brect_, point);
+				}
+				else {
+					set_points(brect_, point, point);
+					brect_initialized_ = true;
+				}
+
+			}
+
 			void construct_brect() {
 				double side = (std::max)(xh(brect_) - xl(brect_), yh(brect_) - yl(brect_));
 				center(shift_, brect_);
 				set_points(brect_, shift_, shift_);
 				bloat(brect_, side * 1.2);
 			}
-
+			public:
 			//TODO draw voronoi graph
 			void addVoronoiGraphToHoudiniGeo(GU_Detail *gdp) {
 				clear();
+				int test = houMeshLoader(gdp);
 				construct_brect();
 				printf("addVoronoiGraphToHoudiniGeo...\n");
 				//TODO init intermediate format
 
-				int test = houMeshLoader(gdp);
+				
 				// Construction of the Voronoi Diagram.
-				voronoi_diagram<double> vd;
+				voronoi_diagram<coordinate_type> vd;
 				construct_voronoi(point_data_.begin(), point_data_.end(),
 					segment_data_.begin(), segment_data_.end(),
 					&vd);
@@ -566,11 +577,11 @@ namespace boost {
 			}
 
 			//class data
-			point_type shift_ = Point(0.0, 0.0);
+			point_type shift_ = point_type(0.0, 0.0);
 			rect_type brect_;
 			std::vector<point_type> point_data_; 
 			std::vector<segment_type> segment_data_;
-			//VB vb_;
+			VB vb_;
 			VD vd_;
 			bool brect_initialized_;
 			bool primary_edges_only_;
@@ -606,5 +617,3 @@ namespace boost {
 				}
 				*/
 		};
-	}  // polygon
-}  // boost
