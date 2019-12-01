@@ -127,13 +127,19 @@ class boostVoronoiGraph {
 				return ptoff;
 			}
 
+			void addSegment(segment_type segment,const int prim_index){
+				seg_parent_prims_.push_back(prim_index);
+				segment_data_.push_back(segment);
+				
+			}
+
 			int houMeshLoader(GU_Detail *gpd) {
 				// Preparing Input Geometries.
 				if (verbosity > 0)printf("houMeshLoader...\n");
 				//iterate over prims 
 				GEO_Primitive *prim;
 				GA_Range vtx_range;
-				if (verbosity > 0)printf("prim range %f\n", gpd->getPrimitiveRange());
+				int prim_index = 0;
 				GA_FOR_ALL_PRIMITIVES(gpd, prim){
 					if (prim->getTypeId() == GEO_PRIMPOLY) {
 						int i = 0;
@@ -148,13 +154,14 @@ class boostVoronoiGraph {
 							point_type pt1 = point_type(offs.x(), offs.z());
 							if (i>0) {
 								if (verbosity > 0)printf("adding point..\n");
-								segment_data_.push_back(segment_type(pt0, pt1));
+								addSegment(segment_type(pt0, pt1), prim_index);
 								update_brect(point_type(pt1));
 								if (i == 1) update_brect(point_type(pt0));
 							}
 							pt0 = point_type(offs.x(), offs.z());
 							i++;
 						}
+						prim_index++;
 					}
 				}
 				return(0);
@@ -262,25 +269,48 @@ class boostVoronoiGraph {
 			 double vec_dot = segment_vec_x * point_vec_x + segment_vec_y * point_vec_y;
 			 return vec_dot / sqr_segment_length;
 		 }
-				segment_type retrieve_segment(const cell_type& cell) {
-					source_index_type index = cell.source_index() - point_data_.size();
-					return segment_data_[index];
-				}
 
-			point_type retrieve_point(const voronoi_diagram<coordinate_type>::cell_type& cell) {
-				source_index_type index = cell.source_index();
-				source_category_type category = cell.source_category();
-				if (category == boost::polygon::SOURCE_CATEGORY_SINGLE_POINT) {
-					return point_data_[index];
-				}
-				index -= point_data_.size(); //TODO get input points, should have been implemented in top class to be accessible globally but simpler solution is to pass points and segments to addVoronoiDiagramToHouMesh
-				if (category == boost::polygon::SOURCE_CATEGORY_SEGMENT_START_POINT) {
-					return low(segment_data_[index]);
-				}
-				else {
-					return high(segment_data_[index]);
-				}
+		 int get_cell_prim_id(const voronoi_diagram<coordinate_type>::cell_type* cell) {
+			 //get source index
+			 if (cell->contains_point()) return -1;
+			 //segment index
+			 source_index_type seg_index = cell->source_index() - point_data_.size();
+			 int prim_index = seg_parent_prims_[seg_index];
+			 return prim_index;
+		 }
+
+		 int get_cell_segment_id(const voronoi_diagram<coordinate_type>::cell_type* cell) {
+			 //get source index
+			 if (cell->contains_point()) return -1;
+			 source_index_type index = cell->source_index() - point_data_.size();
+			return index;
+		 }
+
+		 int get_cell_pt_id(const voronoi_diagram<coordinate_type>::cell_type* cell) {
+			 //get source index
+			 if (cell->contains_point()) return cell->source_index();
+			 return -1;
+		 }
+		 
+		segment_type retrieve_segment(const cell_type& cell) {
+			source_index_type index = cell.source_index() - point_data_.size();
+			return segment_data_[index];
+		}
+
+		point_type retrieve_point(const cell_type& cell) {
+			source_index_type index = cell.source_index();
+			source_category_type category = cell.source_category();
+			if (category == boost::polygon::SOURCE_CATEGORY_SINGLE_POINT) {
+				return point_data_[index];
 			}
+			index -= point_data_.size(); 
+			if (category == boost::polygon::SOURCE_CATEGORY_SEGMENT_START_POINT) {
+				return low(segment_data_[index]);
+			}
+			else {
+				return high(segment_data_[index]);
+			}
+		}
 
 			void clip_infinite_edge(
 				const edge_type& edge, std::vector<point_type>* clipped_edge) {
@@ -351,6 +381,19 @@ class boostVoronoiGraph {
 			GEO_PrimPoly* create_edge_hou_poly(GU_Detail *gdp, const voronoi_diagram<coordinate_type>::edge_type* edge) {
 				GEO_PrimPoly *poly = (GEO_PrimPoly *)gdp->appendPrimitive(GA_PRIMPOLY);
 				if (set_cell_prim_attr_) {
+					const cell_type *cell = edge->cell();
+					int cell_seg_id = -1;
+					int cell_pt_id = -1;
+					int cell_prim_id = -1;
+
+					if (cell->contains_point()) { cell_seg_id = get_cell_pt_id(cell); }
+					else {
+						cell_pt_id = get_cell_segment_id(cell);
+						cell_prim_id = get_cell_prim_id(cell);
+					}
+					cell_prim_id_attrib_handle.set(poly->getMapOffset(), cell_prim_id);
+					cell_seg_id_attrib_handle.set(poly->getMapOffset(), cell_seg_id);
+					cell_pt_id_attrib_handle.set(poly->getMapOffset(), cell_pt_id);
 				}
 				return poly;
 			}
@@ -430,10 +473,15 @@ class boostVoronoiGraph {
 				//TODO add voronoi cells as prims and points
 				if (verbosity > 0)printf("addVoronoiDiagramToHouMesh...\n");
 				//create geometry for voronoi graph
-				if (set_cell_prim_attr_) {};
+				if (set_cell_prim_attr_) { 
+					cell_seg_id_attrib_handle = gdp->addIntTuple(GA_ATTRIB_PRIMITIVE, cell_seg_attrib_name_ ,1); 
+					cell_pt_id_attrib_handle = gdp->addIntTuple(GA_ATTRIB_PRIMITIVE, cell_pt_attrib_name_, 1);
+					cell_prim_id_attrib_handle = gdp->addIntTuple(GA_ATTRIB_PRIMITIVE, cell_prim_attrib_name_, 1);
+				}
+
 				iterate_primary_edges(gdp, vd, points, segments);
-
-
+				return 0;
+				/*
 				unsigned int cell_index = 0;
 				GA_Offset ptoff;
 				for (voronoi_diagram<coordinate_type>::const_cell_iterator it = vd.cells().begin();
@@ -478,6 +526,7 @@ class boostVoronoiGraph {
 				}
 
 				return(0);
+				*/
 			}
 			void clear() {
 				brect_initialized_ = false;
@@ -512,7 +561,7 @@ class boostVoronoiGraph {
 				construct_brect();
 				if (verbosity > 0) printf("addVoronoiGraphToHoudiniGeo...\n");
 				//TODO init intermediate format
-				//gdp->clearAndDestroy();
+				gdp->clear();
 				
 				// Construction of the Voronoi Diagram.
 				voronoi_diagram<coordinate_type> vd;
@@ -535,6 +584,14 @@ class boostVoronoiGraph {
 			bool internal_edges_only_;
 			int verbosity = 0;
 			int set_cell_prim_attr_ = true;
+
+			std::vector<int> seg_parent_prims_; //list to map between line segments in vor geo and Houdini primitives
+			GA_RWHandleI cell_seg_id_attrib_handle;
+			GA_RWHandleI cell_pt_id_attrib_handle;
+			GA_RWHandleI cell_prim_id_attrib_handle;
+			std::string cell_seg_attrib_name_ = "vor_cell_seg_id";
+			std::string cell_pt_attrib_name_ = "vor_cell_pt_id";
+			std::string cell_prim_attrib_name_ = "vor_cell_prim_id";
 			/*
 			//old code here as ref
 			void HouMeshDumper(GU_Detail *gdp) {
