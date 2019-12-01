@@ -139,6 +139,7 @@ SOP_VoronoiGraphVerb::cook(const SOP_NodeVerb::CookParms &cookparms) const
 
     auto &&sopparms = cookparms.parms<SOP_VoronoiGraphParms>();
     GU_Detail *detail = cookparms.gdh().gdpNC();
-	boostVoronoiGraph::addVoronoiGraphToHoudiniGeo(detail);
+	boost::polygon::boostVoronoiGraph test;
+	test.addVoronoiGraphToHoudiniGeo(detail);
 
 }
