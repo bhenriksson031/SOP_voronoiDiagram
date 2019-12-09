@@ -132,6 +132,10 @@ class boostVoronoiGraph {
 				segment_data_.push_back(segment);
 			}
 
+			void addPoint(point_type pt) {
+				point_data_.push_back(pt);
+			}
+
 			void compute_size_factor(GU_Detail *gpd) {
 				UT_BoundingBox bbox;
 				gpd->computeQuickBounds(bbox);
@@ -147,6 +151,17 @@ class boostVoronoiGraph {
 				GEO_Primitive *prim;
 				GA_Range vtx_range;
 				int prim_index = 0;
+
+				//add single points
+				GA_Offset ptoff;
+				GA_OffsetList unused_pts;
+				bool found_unused = gpd->findUnusedPoints(&unused_pts);
+				for(GA_Offset ptoff : unused_pts){
+					UT_Vector3 offs = gpd->getPos3(ptoff);
+					point_type pt_single = point_type(offs.x()* scale_up_factor_, offs.z() * scale_up_factor_);
+					addPoint(pt_single);
+				}
+
 				GA_FOR_ALL_PRIMITIVES(gpd, prim){
 					if (prim->getTypeId() == GEO_PRIMPOLY) {
 						int i = 0;
