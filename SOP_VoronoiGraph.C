@@ -148,7 +148,9 @@ SOP_VoronoiGraph::cookMySop(OP_Context &context)
 	// 2. Copy input geometry into our gdp
 	// 3. Parse and create myGroup
 	if (cookInputGroups(context) >= UT_ERROR_ABORT)
-		return error();	setCurGdh(0, myGdpHandle);
+		return error();
+
+	setCurGdh(0, myGdpHandle);
 
 	boostVoronoiGraph test;
 	test.addVoronoiGraphToHoudiniGeo(gdp);
