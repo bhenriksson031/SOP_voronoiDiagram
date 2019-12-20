@@ -40,6 +40,7 @@ namespace HDK_Beh {
 class SOP_VoronoiGraph : public SOP_Node
 {
 public:
+	static PRM_Template		 myTemplateList[];
     static PRM_Template *buildTemplates();
     static OP_Node *myConstructor(OP_Network *net, const char *name, OP_Operator *op)
     {
@@ -69,6 +70,12 @@ protected:
         return cookMyselfAsVerb(context);
     }
 	*/
+private: 
+	double GETBOUND() { return evalFloat("bound", 0, 0); }
+	double GETMAG() { return evalFloat("mag", 0, 0); }
+	bool GETDOBOUNDARYGEO() { return evalInt("doBoundaryGeo", 0, 0) == 1 ? true : false;}
+	bool GETRESAMPLE() { return evalInt("resampleCurves", 0, 0) == 1 ? true : false;}
+	bool GETREMOVEOUTIDES() { return evalInt("removeOutsideSegments", 0, 0) ==1 ? true:false; }
 };
 } // End HDK_Sample namespace
 

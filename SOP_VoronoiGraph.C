@@ -72,7 +72,7 @@ newSopOperator(OP_OperatorTable *table)
         "voronoiGraph",   // Internal name
         "Voronoi Graph",                     // UI name
         SOP_VoronoiGraph::myConstructor,    // How to build the SOP
-        SOP_VoronoiGraph::buildTemplates(), // My parameters
+        SOP_VoronoiGraph::myTemplateList, // My parameters
         1,                          // Min # of sources
         1,                          // Max # of sources
         nullptr,                    // Custom local variables (none)
@@ -94,6 +94,30 @@ static const char *theDsFile = R"THEDSFILE(
         export  all         // This makes the parameter show up in the toolbox
                             // above the viewport when it's in the node's state.
     }
+    parm {
+        name    "bound"      // Internal parameter name
+        label   "Boundary Distance" // Descriptive parameter name for user interface
+        type    float
+        default { "-1.0" }     // Default for this parameter on new nodes
+        range   { 0! 10 }   // The value is prevented from going below 2 at all.
+                            // The UI slider goes up to 50, but the value can go higher.
+        export  all         // This makes the parameter show up in the toolbox
+                            // above the viewport when it's in the node's state.
+    }
+    parm {
+        name    "resampleCurves"      // Internal parameter name
+        label   "resampleCurves" // Descriptive parameter name for user interface
+        type    toggle
+        default { "on" }     // Default for this parameter on new nodes
+        export  all         // This makes the parameter show up in the toolbox
+                            // above the viewport when it's in the node's state.
+    }
+	PRM_Template(PRM_TOGGLE,    1, &names[0]),
+
+//TODO add parms for attrib names
+//TODO add checkbox for polygon/polylines output
+
+
 }
 )THEDSFILE";
 
@@ -103,6 +127,28 @@ SOP_VoronoiGraph::buildTemplates()
     static PRM_TemplateBuilder templ("SOP_VoronoiGraph.C"_sh, theDsFile);
     return templ.templates();
 }
+
+static PRM_Name names[] = {
+	PRM_Name("divs",	"Divisions"),
+	PRM_Name("bound",	"Boundary Distance"),
+	PRM_Name("mag",	"Mag"),
+	PRM_Name("doBoundaryGeo",	"Boundary Geo"),
+	PRM_Name("resampleCurves",	"resampleCurves"),
+	PRM_Name("removeOutsideSegments",	"removeOutsideSegments"),
+
+
+};
+PRM_Template
+SOP_VoronoiGraph::myTemplateList[] = {
+	PRM_Template(PRM_INT,  1, &names[0], PRMzeroDefaults),
+	PRM_Template(PRM_FLT_J,	1, &names[1], PRMzeroDefaults, 0, &PRMscaleRange),
+	PRM_Template(PRM_FLT_J,	1, &names[2], PRMzeroDefaults, 0, &PRMscaleRange),
+	PRM_Template(PRM_TOGGLE,    1, &names[3]),
+	PRM_Template(PRM_TOGGLE,    1, &names[4]),
+	PRM_Template(PRM_TOGGLE,    1, &names[5]),
+	PRM_Template(PRM_DIRECTION, 3, &PRMdirectionName, PRMzaxisDefaults),
+	PRM_Template(),
+};
 /*
 class SOP_VoronoiGraph : public SOP_NodeVerb
 {
@@ -152,8 +198,13 @@ SOP_VoronoiGraph::cookMySop(OP_Context &context)
 
 	setCurGdh(0, myGdpHandle);
 
-	boostVoronoiGraph test;
-	test.addVoronoiGraphToHoudiniGeo(gdp);
+	boostVoronoiGraph vor_diagram;
+	double bound = GETBOUND();
+	double mag = GETMAG();
+	double do_boundary_geo = GETDOBOUNDARYGEO();
+	bool do_resample = GETRESAMPLE();
+	bool keep_outside_segments = GETREMOVEOUTIDES();
+	vor_diagram.addVoronoiGraphToHoudiniGeo(gdp, bound, mag, do_boundary_geo, do_resample, keep_outside_segments);
 	return error();
 
 }

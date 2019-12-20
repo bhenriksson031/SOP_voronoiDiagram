@@ -28,7 +28,6 @@ using boost::polygon::high;
 #include "voronoi_visual_utils.hpp"
 
 
-//TODO find intermediate format
 struct Point {
 	double a;
 	double b;
@@ -121,12 +120,14 @@ class boostVoronoiGraph {
 
 
 			GA_Offset addPointFromVDPt(GU_Detail *gdp, point_type p) {
+				//TODO add vertex attributes
 				GA_Offset ptoff = gdp->appendPoint();
 				UT_Vector3 PValue = UT_Vector3(x(p)/ scale_up_factor_, 0.0f, y(p)/ scale_up_factor_); //TODO get edge point position
 				gdp->setPos3(ptoff, PValue);
+				temp_ptnum++;
 				return ptoff;
-			}
-
+			}			
+			
 			void addSegment(segment_type segment,const int prim_index){
 				seg_parent_prims_.push_back(prim_index);
 				segment_data_.push_back(segment);
@@ -141,7 +142,12 @@ class boostVoronoiGraph {
 				gpd->computeQuickBounds(bbox);
 				double bbox_size = bbox.sizeMax();
 				scale_up_factor_ = max_coord_size_ / bbox_size;
-				printf("scale factor = %g \n", scale_up_factor_);
+				if(verbosity>0) printf("scale factor = %g \n", scale_up_factor_);
+			}
+			
+			bool is_point_outside_brect(point_type &p) {
+				if ( (p.x() < xl(brect_) || p.x() > xh(brect_) )|| (p.y() < yl(brect_) || p.y() > yh(brect_))) { return true; }
+				return false;
 			}
 
 			int houMeshLoader(GU_Detail *gpd) {
@@ -160,6 +166,7 @@ class boostVoronoiGraph {
 					UT_Vector3 offs = gpd->getPos3(ptoff);
 					point_type pt_single = point_type(offs.x()* scale_up_factor_, offs.z() * scale_up_factor_);
 					addPoint(pt_single);
+					update_brect(pt_single);
 				}
 
 				GA_FOR_ALL_PRIMITIVES(gpd, prim){
@@ -297,7 +304,6 @@ class boostVoronoiGraph {
 			 //get source index
 			 if (cell->source_category() == SOURCE_CATEGORY_SINGLE_POINT)
 			 {
-				 //TODO get points segment and prim id
 				 return -1;
 				 point_type pt = retrieve_point(*cell);
 			 }
@@ -379,36 +385,45 @@ class boostVoronoiGraph {
 				coordinate_type side = xh(brect_) - xl(brect_);
 				coordinate_type koef =
 					side / (std::max)(fabs(direction.x()), fabs(direction.y()));
+				//add start point
+				if (edge.vertex0() != NULL) {
+					clipped_edge->push_back(
+						point_type(edge.vertex0()->x(), edge.vertex0()->y()));
+				}
+				else {
+					clipped_edge->push_back(
+					point_type(edge.vertex1()->x(), edge.vertex1()->y()));
+
+				}
+				//add clipped point
 				if (edge.vertex0() == NULL) {
 					clipped_edge->push_back(point_type(
 						origin.x() - direction.x() * koef,
 						origin.y() - direction.y() * koef));
 				}
+				
 				else {
-					clipped_edge->push_back(
-						point_type(edge.vertex0()->x(), edge.vertex0()->y()));
-				}
-				if (edge.vertex1() == NULL) {
 					clipped_edge->push_back(point_type(
 						origin.x() + direction.x() * koef,
 						origin.y() + direction.y() * koef));
 				}
-				else {
-					clipped_edge->push_back(
-						point_type(edge.vertex1()->x(), edge.vertex1()->y()));
-				}
+
 			}
 
 			void sample_curved_edge(const voronoi_diagram<coordinate_type>::edge_type& edge, std::vector<point_type>* sampled_edge) {
 				if (verbosity > 0)printf("sample_curved_edge...\n");
-				double max_dist = curve_sample_dist_ * scale_up_factor_; // 1E-3 * (xh(brect_) - xl(brect_));
+				double max_dist = curve_sample_dist_ * scale_up_factor_;
 				point_type point = edge.cell()->contains_point() ? retrieve_point(*edge.cell()) : retrieve_point(*edge.twin()->cell());
 				segment_type segment = edge.cell()->contains_point() ?
 					retrieve_segment(*edge.twin()->cell()) :
 					retrieve_segment(*edge.cell());
 				discretize(point, segment, max_dist, sampled_edge);
+				set_near_points(segment.low(), segment.low() );
 			}
-
+			void set_near_points(point_type p0, point_type p1) {
+				//TODO iterate through points
+				//TOOD this function should take a list of sample parameters
+			}
 			GEO_PrimPoly* create_edge_hou_poly(GU_Detail *gdp, const voronoi_diagram<coordinate_type>::edge_type* edge) {
 				GEO_PrimPoly *poly = (GEO_PrimPoly *)gdp->appendPrimitive(GA_PRIMPOLY);
 				if (set_cell_prim_attr_) {
@@ -428,6 +443,86 @@ class boostVoronoiGraph {
 				return poly;
 			}
 
+			int create_hou_brect_poly(GU_Detail *gdp) {
+				GEO_PrimPoly *poly = (GEO_PrimPoly *)gdp->appendPrimitive(GA_PRIMPOLY);
+				//TODO add vertex attributes
+				point_type pt = point_type(xl(brect_), yl(brect_));
+				poly->appendVertex(addPointFromVDPt(gdp, point_type(xl(brect_), yl(brect_))));
+				poly->appendVertex(addPointFromVDPt(gdp, point_type(xl(brect_), yh(brect_))));
+				poly->appendVertex(addPointFromVDPt(gdp, point_type(xh(brect_), yh(brect_))));
+				poly->appendVertex(addPointFromVDPt(gdp, point_type(xh(brect_), yl(brect_))));
+				poly->appendVertex(addPointFromVDPt(gdp, point_type(xl(brect_), yl(brect_))));
+				return 1;
+			}
+
+			float set_border_pos(point_type *p, point_type *p_prev, bool reverse= false) {
+				point_type *p0 = reverse ? p_prev:p;
+				point_type *p1 = reverse ? p : p_prev;
+				
+				point_type dir = point_type(p0->x()- p1->x() , double(p0->y() - p1->y() ));
+				double dir_len = std::sqrt(dir.x()*dir.x() + dir.y()*dir.y()); //norm
+				dir.x(dir.x() / dir_len);
+				dir.y(dir.y()/ dir_len);
+
+				double x_dist, y_dist, x_intersect_mag, y_intersect_mag;
+				point_type pt_intersection;
+				if (dir.x() == 0 || dir.y() == 0) {
+					if(dir.x()==0){ 
+						double y_side = dir.y() > 0 ? yh(brect_) : yl(brect_) ;
+						pt_intersection = point_type(p1->x(), y_side ) ;
+					}
+					else{
+						double x_side = dir.x() > 0 ? xh(brect_): xl(brect_) ;
+						pt_intersection = point_type(x_side, p1->y());
+					}
+					return 0; //TODO, set intersection point
+				}
+				else {
+					if (dir.x() > 0) { x_intersect_mag = (xh(brect_) - p1->x()) / dir.x(); }
+					else { x_intersect_mag = (xl(brect_) - p1->x()) / dir.x(); }
+
+					if (dir.y() > 0) { y_intersect_mag =(yh(brect_) - p1->y()) / dir.y(); }
+					else { y_intersect_mag = (yl(brect_) - p1->y()) / dir.y(); }
+				}
+				x_intersect_mag = abs(x_intersect_mag);
+				y_intersect_mag = abs(y_intersect_mag);
+
+				double intersection_mag = 1.0* abs(x_intersect_mag)<abs(y_intersect_mag) ? x_intersect_mag: y_intersect_mag;
+				if (mag_ == 0.0)return 0.0;
+				p0->x(p1->x() + dir.x() * abs(intersection_mag) );
+				p0->y(p1->y() + dir.y() * abs(intersection_mag) );
+
+				return 1.0; //
+			}
+
+			void cull_outsides_points(std::vector<point_type>& sampled_edge)
+			{
+				int start_index = 0;
+				point_type *p_prev = &sampled_edge.at(0); //change to pointer to redirect over iteration
+				bool is_outside_last = is_point_outside_brect((*p_prev));// is_point_outside_brect(p_prev);
+
+				for (int i = 1; i< sampled_edge.size(); i++)
+				{
+					//TODO clip infity lines against brect
+					//TODO clip curves against brect
+					point_type *p = &sampled_edge.at(i);
+					bool is_outside = is_point_outside_brect((*p));
+
+					if (is_outside && !is_outside_last ) {
+						set_border_pos(p, p_prev);
+					}
+					else if (!is_outside && is_outside_last) {
+						set_border_pos(p, p_prev, true);
+					}
+					else if (is_outside && is_outside_last) {
+						sampled_edge.erase(sampled_edge.begin(), sampled_edge.begin() + i);
+						return;
+					}
+					is_outside_last = is_outside;
+					p_prev = p;
+				}
+			}
+
 				// Traversing Voronoi edges using cell iterator.
 			int iterate_primary_edges(GU_Detail *gdp, const voronoi_diagram<coordinate_type> &vd, std::vector<point_type>& points, std::vector<segment_type>& segments) {
 				if (verbosity > 0)printf("iterate_primary_edges...\n");
@@ -440,27 +535,36 @@ class boostVoronoiGraph {
 					
 					// This is convenient way to iterate edges around Voronoi cell.
 					do {
-						if (!primary_edges_only_ || edge->is_primary()) {
-							GEO_PrimPoly *poly = create_edge_hou_poly(gdp, edge);
-							std::vector<point_type> samples;
-							if (!edge->is_finite()) {
-								clip_infinite_edge(*edge, &samples);
-							}
-							else {
-								point_type vertex0(edge->vertex0()->x(), edge->vertex0()->y());
-								samples.push_back(vertex0);
-								point_type vertex1(edge->vertex1()->x(), edge->vertex1()->y());
-								samples.push_back(vertex1);
-								if (edge->is_curved()) {
-									sample_curved_edge(*edge, &samples);
+						if (true) {
+							if (!primary_edges_only_ || edge->is_primary()) {
+								//TODO check if segment is inside brect_
+								
+								std::vector<point_type> samples;
+								if (!edge->is_finite()) {
+									//TODO clip against brect
+									clip_infinite_edge(*edge, &samples);
 								}
+								else{
+									point_type vertex0(edge->vertex0()->x(), edge->vertex0()->y());
+									samples.push_back(vertex0);
+									point_type vertex1(edge->vertex1()->x(), edge->vertex1()->y());
+									samples.push_back(vertex1);
+
+									if (edge->is_curved() && do_curve_resample_) {
+										sample_curved_edge(*edge, &samples);
+									}
+								}
+								if (samples.size() > 1) {
+									if (!keep_outside_) cull_outsides_points(samples);
+									GEO_PrimPoly *poly = create_edge_hou_poly(gdp, edge);
+									for (int i = 0; i < samples.size(); ++i) {
+										point_type p0 = samples[i];
+										ptoff = addPointFromVDPt(gdp, p0);
+										poly->appendVertex(ptoff);
+									}
+								}
+								++result;
 							}
-							for (int i = 0; i < samples.size(); ++i) {
-								point_type p0 = samples[i];
-								ptoff = addPointFromVDPt(gdp, p0);
-								poly->appendVertex(ptoff);
-							}
-							++result;
 						}
 						edge = edge->next();
 					} while (edge != cell.incident_edge());
@@ -480,6 +584,8 @@ class boostVoronoiGraph {
 					cell_prim_id_attrib_handle = gdp->addIntTuple(GA_ATTRIB_PRIMITIVE, cell_prim_attrib_name_, 1);
 				}
 				iterate_primary_edges(gdp, vd, points, segments);
+
+				if (add_brect_poly_) { create_hou_brect_poly(gdp); }
 				return 0;
 
 			}
@@ -506,11 +612,17 @@ class boostVoronoiGraph {
 				double side = (std::max)(xh(brect_) - xl(brect_), yh(brect_) - yl(brect_));
 				center(shift_, brect_);
 				set_points(brect_, shift_, shift_);
-				bloat(brect_, side * 0.1);
+				bloat(brect_, side* bloat_);
 			}
 			public:
 			//TODO draw voronoi graph
-			void addVoronoiGraphToHoudiniGeo(GU_Detail *gdp) {
+			void addVoronoiGraphToHoudiniGeo(GU_Detail *gdp, double test_parm, double mag, bool do_boundary_geo, bool do_resample, bool keep_outside) {
+				do_curve_resample_ = do_resample;
+				add_brect_poly_ = do_boundary_geo;
+				keep_outside_ = keep_outside;
+				bloat_ = test_parm;
+				mag_ = mag;
+
 				clear();
 				compute_size_factor(gdp);
 				int test = houMeshLoader(gdp);
@@ -529,6 +641,10 @@ class boostVoronoiGraph {
 			}
 
 			//class data
+			//TODO set point id attrib for polylines ending on segment points 
+			//TODO mark polylines with attributes with same primid on both sides
+			//TODO set point attrib data with nearest point on input geo
+
 			point_type shift_ = point_type(0.0, 0.0);
 			rect_type brect_;
 			std::vector<point_type> point_data_; 
@@ -541,7 +657,13 @@ class boostVoronoiGraph {
 			int verbosity = 0;
 			int set_cell_prim_attr_ = true;
 
-
+			int temp_ptnum = 0;
+			bool do_cull_outside_ = true; //TODO remove this, probably not implemented
+			bool keep_outside_ = true;
+			bool add_brect_poly_ = true;
+			bool do_curve_resample_ = true;
+			double bloat_ = .55;
+			double mag_ = 1.0;
 			double max_coord_size_ = 65536; //1024*64 -arbitrary number
 			double scale_up_factor_ = 1.0;  // set this by bounding box
 			double curve_sample_dist_ = .05;
