@@ -41,63 +41,6 @@ struct Point {
 
 };
 
-struct Segment {
-	Point p0;
-	Point p1;
-	Segment(double x1, double y1, double x2, double y2) : p0(x1, y1), p1(x2, y2) {}
-};
-
-
-namespace boost {
-	namespace polygon {
-
-		template <>
-		struct geometry_concept<Point> {
-			typedef point_concept type;
-		};
-
-		template <>
-		struct point_traits<Point> {
-			typedef double coordinate_type;
-
-			static inline coordinate_type get(
-				const Point& point, orientation_2d orient) {
-				return (orient == HORIZONTAL) ? point.a : point.b;
-			}
-		};
-		/*
-		//modified from point_traits.hpp
-		template <>
-		struct point_mutable_traits<Point> {
-			typedef double coordinate_type;
-
-			static void set(
-				Point& point, orientation_2d orient, coordinate_type value) {
-				point.set(orient, value);
-			}
-
-			static Point construct(coordinate_type x, coordinate_type y) {
-				return Point(x, y);
-			}
-		};
-		*/
-		template <>
-		struct geometry_concept<Segment> {
-			typedef segment_concept type;
-		};
-
-		template <>
-		struct segment_traits<Segment> {
-			typedef double coordinate_type;
-			typedef Point point_type;
-
-			static inline point_type get(const Segment& segment, direction_1d dir) {
-				return dir.to_int() ? segment.p1 : segment.p0;
-			}
-		};
-	}  // polygon
-}  // boost
-
 using namespace boost::polygon;
 class boostVoronoiGraph {
 		private:
@@ -150,7 +93,7 @@ class boostVoronoiGraph {
 				return false;
 			}
 
-			int houMeshLoader(GU_Detail *gpd) {
+			void houMeshLoader(GU_Detail *gpd) {
 				// Preparing Input Geometries.
 				if (verbosity > 0)printf("houMeshLoader...\n");
 				//iterate over prims 
@@ -194,7 +137,7 @@ class boostVoronoiGraph {
 						prim_index++;
 					}
 				}
-				return(0);
+				return;
 			}
 
 			void discretize(
@@ -298,6 +241,30 @@ class boostVoronoiGraph {
 				 segment_vec_x * segment_vec_x + segment_vec_y * segment_vec_y;
 			 double vec_dot = segment_vec_x * point_vec_x + segment_vec_y * point_vec_y;
 			 return vec_dot / sqr_segment_length;
+		 }
+
+		 point_type get_point_projection_point(
+			const point_type& point, const segment_type& segment) {
+			double segment_vec_x = static_cast<double>(x(high(segment))) - static_cast<double>(x(low(segment)));
+			double segment_vec_y = static_cast<double>(y(high(segment))) - static_cast<double>(y(low(segment)));
+			double point_vec_x = x(point) - static_cast<double>(x(low(segment)));
+			double point_vec_y = y(point) - static_cast<double>(y(low(segment)));
+			double sqr_segment_length =
+				segment_vec_x * segment_vec_x + segment_vec_y * segment_vec_y;
+			double vec_dot = segment_vec_x * point_vec_x + segment_vec_y * point_vec_y;
+
+			double seg_parm = vec_dot / sqr_segment_length;
+			point_type p_proj;
+			p_proj.x(static_cast<double>(x(low(segment)) + segment_vec_x* seg_parm) );
+			p_proj.y(static_cast<double>(y(low(segment)) + segment_vec_y* seg_parm) );
+			return p_proj;
+		 }
+		 bool edge_is_internal_to_primid(const edge_type& edge) {
+			 const cell_type& cell1 = *edge.cell();
+			 const cell_type& cell2 = *edge.twin()->cell();
+			 int prim_id_1 = get_cell_prim_id(&cell1);
+			 int prim_id_2 = get_cell_prim_id(&cell2);
+			 return prim_id_1==prim_id_2;
 		 }
 
 		 int get_cell_prim_id(const voronoi_diagram<coordinate_type>::cell_type* cell) {
@@ -418,13 +385,29 @@ class boostVoronoiGraph {
 					retrieve_segment(*edge.twin()->cell()) :
 					retrieve_segment(*edge.cell());
 				discretize(point, segment, max_dist, sampled_edge);
-				set_near_points(segment.low(), segment.low() );
 			}
-			void set_near_points(point_type p0, point_type p1) {
-				//TODO iterate through points
-				//TOOD this function should take a list of sample parameters
+
+
+			void set_near_point_values(const voronoi_diagram<coordinate_type>::edge_type* edge, std::vector<point_type>* samples, std::vector<point_type>* sampled_edge_sources) {
+				const cell_type *cell = edge->cell();
+				
+				if (cell->contains_point()) { //for point sources
+					point_type p0 = retrieve_point(*cell); 
+					for (int i = 0; i < samples->size(); i++) { sampled_edge_sources->push_back(p0); }
+				} 
+				else {
+					for (int i = 0; i < samples->size(); i++) {
+						segment_type segment = retrieve_segment(*edge->cell());
+						point_type &p_sample = samples->at(i);
+						point_type p_proj = get_point_projection_point(p_sample, segment);
+						sampled_edge_sources->push_back(p_proj);
+					}
+				}
+				return;
 			}
-			GEO_PrimPoly* create_edge_hou_poly(GU_Detail *gdp, const voronoi_diagram<coordinate_type>::edge_type* edge) {
+
+			void create_edge_hou_poly(GU_Detail *gdp, const voronoi_diagram<coordinate_type>::edge_type* edge,  std::vector<point_type>* samples) {
+				std::vector<point_type> samples_sources; 
 				GEO_PrimPoly *poly = (GEO_PrimPoly *)gdp->appendPrimitive(GA_PRIMPOLY);
 				if (set_cell_prim_attr_) {
 					const cell_type *cell = edge->cell();
@@ -440,7 +423,26 @@ class boostVoronoiGraph {
 					cell_seg_id_attrib_handle.set(offset, cell_seg_id);
 					cell_pt_id_attrib_handle.set(offset, cell_pt_id);
 				}
-				return poly;
+				if (set_near_point_attrib_) set_near_point_values(edge, samples, &samples_sources);
+				//TODO set samples_sources for line segments
+
+				for (int i = 0; i < samples->size(); ++i) {
+					point_type p0 = samples->at(i);
+					GA_Offset ptoff = addPointFromVDPt(gdp, p0);
+					poly->appendVertex(ptoff);
+
+					if (set_near_point_attrib_){
+						point_type p_near = samples_sources.at(i);
+						UT_Vector3 pos_near(p_near.x() / scale_up_factor_, 0.0, p_near.y()/ scale_up_factor_);
+						pt_near_attrib_handle.set(ptoff, 0, p_near.x() / scale_up_factor_);
+						pt_near_attrib_handle.set(ptoff, 2, p_near.y() / scale_up_factor_);
+
+						//TODO set attrib val from samples_sources[i]
+					}
+				}
+
+
+				return;
 			}
 
 			int create_hou_brect_poly(GU_Detail *gdp) {
@@ -527,7 +529,6 @@ class boostVoronoiGraph {
 			int iterate_primary_edges(GU_Detail *gdp, const voronoi_diagram<coordinate_type> &vd, std::vector<point_type>& points, std::vector<segment_type>& segments) {
 				if (verbosity > 0)printf("iterate_primary_edges...\n");
 				int result = 0;
-				GA_Offset ptoff;
 				for (voronoi_diagram<coordinate_type>::const_cell_iterator it = vd.cells().begin();
 					it != vd.cells().end(); ++it) {
 					const voronoi_diagram<coordinate_type>::cell_type& cell = *it;
@@ -535,33 +536,28 @@ class boostVoronoiGraph {
 					
 					// This is convenient way to iterate edges around Voronoi cell.
 					do {
-						if (true) {
-							if (!primary_edges_only_ || edge->is_primary()) {
-								//TODO check if segment is inside brect_
-								
+						if (!primary_edges_only_ || edge->is_primary()) {
+							//if (remove_point_segments_ && (cell.source_category()== SOURCE_CATEGORY_SEGMENT_START_POINT || cell.source_category() == SOURCE_CATEGORY_SEGMENT_END_POINT) ) {}
+							if (remove_point_segments_ && edge_is_internal_to_primid(*edge)) {}		
+							else {
 								std::vector<point_type> samples;
 								if (!edge->is_finite()) {
-									//TODO clip against brect
 									clip_infinite_edge(*edge, &samples);
 								}
-								else{
+								else {
 									point_type vertex0(edge->vertex0()->x(), edge->vertex0()->y());
 									samples.push_back(vertex0);
 									point_type vertex1(edge->vertex1()->x(), edge->vertex1()->y());
 									samples.push_back(vertex1);
-
 									if (edge->is_curved() && do_curve_resample_) {
 										sample_curved_edge(*edge, &samples);
 									}
+
 								}
 								if (samples.size() > 1) {
 									if (!keep_outside_) cull_outsides_points(samples);
-									GEO_PrimPoly *poly = create_edge_hou_poly(gdp, edge);
-									for (int i = 0; i < samples.size(); ++i) {
-										point_type p0 = samples[i];
-										ptoff = addPointFromVDPt(gdp, p0);
-										poly->appendVertex(ptoff);
-									}
+
+									create_edge_hou_poly(gdp, edge, &samples);
 								}
 								++result;
 							}
@@ -583,6 +579,7 @@ class boostVoronoiGraph {
 					cell_pt_id_attrib_handle = gdp->addIntTuple(GA_ATTRIB_PRIMITIVE, cell_pt_attrib_name_, 1);
 					cell_prim_id_attrib_handle = gdp->addIntTuple(GA_ATTRIB_PRIMITIVE, cell_prim_attrib_name_, 1);
 				}
+				if(set_near_point_attrib_)pt_near_attrib_handle = gdp->addFloatTuple(GA_ATTRIB_POINT, pt_near_attrib_name_, 3);
 				iterate_primary_edges(gdp, vd, points, segments);
 
 				if (add_brect_poly_) { create_hou_brect_poly(gdp); }
@@ -615,36 +612,33 @@ class boostVoronoiGraph {
 				bloat(brect_, side* bloat_);
 			}
 			public:
-			//TODO draw voronoi graph
-			void addVoronoiGraphToHoudiniGeo(GU_Detail *gdp, double test_parm, double mag, bool do_boundary_geo, bool do_resample, bool keep_outside) {
+
+			void addVoronoiGraphToHoudiniGeo(GU_Detail *gdp, double test_parm, double mag, bool do_boundary_geo, bool do_resample, bool keep_outside, bool remove_point_segments) {
 				do_curve_resample_ = do_resample;
 				add_brect_poly_ = do_boundary_geo;
 				keep_outside_ = keep_outside;
+				remove_point_segments_ = remove_point_segments;
+				
 				bloat_ = test_parm;
 				mag_ = mag;
-
 				clear();
 				compute_size_factor(gdp);
-				int test = houMeshLoader(gdp);
+				houMeshLoader(gdp);
+				gdp->clear();
 				construct_brect();
 				if (verbosity > 0) printf("addVoronoiGraphToHoudiniGeo...\n");
-				//TODO init intermediate format
-				gdp->clear();
-				
 				// Construction of the Voronoi Diagram.
 				voronoi_diagram<coordinate_type> vd;
 				construct_voronoi(point_data_.begin(), point_data_.end(),
 					segment_data_.begin(), segment_data_.end(),
 					&vd);
-
 				addVoronoiDiagramToHouMesh(gdp, vd, point_data_, segment_data_);
 			}
-
 			//class data
-			//TODO set point id attrib for polylines ending on segment points 
-			//TODO mark polylines with attributes with same primid on both sides
-			//TODO set point attrib data with nearest point on input geo
+			//TODO fix chrash when creating a looped polygon on input
+			//TODO add boundary polygon to input and leave option to remove both sides of its skeleton on output
 
+			private:
 			point_type shift_ = point_type(0.0, 0.0);
 			rect_type brect_;
 			std::vector<point_type> point_data_; 
@@ -660,8 +654,10 @@ class boostVoronoiGraph {
 			int temp_ptnum = 0;
 			bool do_cull_outside_ = true; //TODO remove this, probably not implemented
 			bool keep_outside_ = true;
+			bool remove_point_segments_ = true;
 			bool add_brect_poly_ = true;
 			bool do_curve_resample_ = true;
+			bool set_near_point_attrib_ = true;
 			double bloat_ = .55;
 			double mag_ = 1.0;
 			double max_coord_size_ = 65536; //1024*64 -arbitrary number
@@ -671,8 +667,10 @@ class boostVoronoiGraph {
 			GA_RWHandleI cell_seg_id_attrib_handle;
 			GA_RWHandleI cell_pt_id_attrib_handle;
 			GA_RWHandleI cell_prim_id_attrib_handle;
+			GA_RWHandleF pt_near_attrib_handle;
 			std::string cell_seg_attrib_name_ = "vor_cell_seg_id";
 			std::string cell_pt_attrib_name_ = "vor_cell_pt_id";
 			std::string cell_prim_attrib_name_ = "vor_cell_prim_id";
+			std::string pt_near_attrib_name_ = "vor_source_pos";
 
 		};
