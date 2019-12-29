@@ -74,9 +74,8 @@ static PRM_Name names[] = {
 	PRM_Name("resampleCurves",	"resampleCurves"),
 	PRM_Name("keepOutsideSegments",	"keepOutsideSegments"),
 	PRM_Name("removePointSegments",	"removePointSegments"),
-
-
 };
+
 PRM_Template
 SOP_VoronoiGraph::myTemplateList[] = {
 	PRM_Template(PRM_INT,  1, &names[0], PRMzeroDefaults),
